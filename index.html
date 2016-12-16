@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GDA - Design Explorer</title>
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <style>
+    body{
+      background: black;
+    }
+    .design :hover{
+      fill:red;
+    }
+    div.tooltip {
+      position: absolute;
+      width: 480px;
+      text-align: center;
+      padding: 10px;
+      font: 12px sans-serif;
+      background: lightsteelblue;
+      border: 0px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    div svg rect{
+      fill: red;
+      stroke: black;
+      stroke-width: 1px;
+
+    }
+  </style>
+</head>
+<body>
+  <p>
+    Design Explorer
+  </p>
+
+  <script type="text/javascript">
+    // - - - - - CONSTANTS - - - - -//
+    //Canvas
+    var w = 1420;
+    var h = 570;
+    var y_span = 10;
+    var xPad = 10;
+    var yPad = 10;
+
+    var radians = 2 * Math.PI;
+    var radarSize = 150;
+    var radarPadding = 10;
+    var radarTicks = 5;
+    var ngon = 8;
+
+    // - - - - - VARIABLES - - - - - //
+    //External dataset (variables allow access through console)
+    var designs;
+    //Domain for design dataset numerical values
+    var bounds = {
+      "metric-travel_dist":[0,0],
+      "metric-daylight":[0,0],
+      "metric-buzz":[0,0],
+      "metric-distraction":[0,0],
+      "metric-workstyle":[0,0],
+      "metric-views_to_outside":[0,0],
+      "metric-error_amen":[0,0],
+      "metric-error_desk":[0,0],
+      "pca1":[0,0],
+      "pca2":[0,0],
+      "cluster":[0,0]
+    };
+    //Log of repeat instances of unique design within a single generation
+    var dupe = [];
+
+    var sorted = false;
+
+    var svg_example = "<svg xmlns=\"http://www.w3.org/2000/svg/\" width=\"273.459383\" height=\"103.090312\" class=\"d-plan\" version=\"1.1\"><polygon fill=\"black\" class=\"plan-bound\" points=\"0.000000,102.493128 54.258758,102.493128 54.258758,68.670003 81.315945,68.670003 81.315945,96.435940 273.459383,96.435940 273.459383,-0.597185 211.371570,-0.597185 211.371570,45.553596 110.000633,45.553596 110.000633,32.756708 116.051258,32.756708 116.051258,0.170634 81.315945,0.170628 81.315945,11.051253 54.258762,11.051253 54.258762,0.000000 0.000000,0.000000\"/></svg>";
+    // - - - - - - - - - - - - - //
+    // - - - - - SETUP - - - - - //
+    // - - - - - - - - - - - - - //
+
+    // - - - - - TOOLTIP - - - - - //
+    //Create <div> DOM element for tooltips
+    var div = d3.select("body").append("div")
+      .attr("class","tooltip")
+      .style("opacity", 0);
+    d3.selectAll(".tooltip").append("div")
+      .attr("class","plan-preview")
+      .append("img")
+      .style("float","left");
+    d3.selectAll(".tooltip").append("div")
+      .attr("class","design-data")
+      .style("float", "right");
+    d3.selectAll(".tooltip").select(".design-data")
+      .append("h2")
+      .text("Design - ####");
+    var radar = d3.selectAll(".tooltip").select(".design-data")
+      .append("svg")
+      .attr("id","radar-graph")
+      .attr("width",radarSize+2*radarPadding)
+      .attr("height",radarSize+2*radarPadding);
+    radar.append("g")
+      .attr("id","radar-base")
+      .attr("transform","translate("+(radarPadding+radarSize/2)+","+(radarPadding+radarSize/2)+")");
+    radar.append("g")
+      .attr("id","radar-value")
+      .attr("transform","translate("+(radarPadding+radarSize/2)+","+(radarPadding+radarSize/2)+")");
+    d3.selectAll("#radar-base")
+      .selectAll("polygon")
+      .data( d3.range(radarTicks) )
+      .enter()
+      .append("polygon")
+      .attr("fill",function(d){ return d==0 ? "white" : "none"; })
+      .attr("stroke",function(d){ return d==0 ? "black" : "gray"; })
+      .attr("stroke-width", function(d){ return d==0 ? "1px" : "0.5px"})
+      .attr("points", function(d){
+        var str = "";
+        for(var i = 0; i <ngon; i++){
+          var pos = i/ngon;
+          var xPos = Math.cos(pos * radians - radians/4)*(radarSize/2)*(1-(d)/radarTicks);
+          var yPos = Math.sin(pos * radians - radians/4)*(radarSize/2)*(1-(d)/radarTicks);
+          str += xPos + "," + yPos + " ";
+        }
+        return str;
+      });
+    d3.selectAll("#radar-base")
+      .selectAll("line")
+      .data(d3.range(ngon))
+      .enter()
+      .append("line")
+      .attr("x1",0)
+      .attr("y1",0)
+      .attr("x2", function(d){
+        return Math.cos(d/ngon * radians - radians/4)*radarSize/2;
+      })
+      .attr("y2", function(d){
+        return Math.sin(d/ngon * radians - radians/4)*radarSize/2;
+      })
+      .attr("stroke","black")
+      .attr("stroke-width", "0.5px");
+      d3.selectAll("#radar-value")
+        .append("polygon")
+        .attr("fill","black")
+        .attr("opacity",0.8)
+        .attr("stroke","none")
+        .attr("points", function(){
+          var str = "";
+          for(var i = 0; i <ngon; i++){
+            var pos = i/ngon;
+            var rand = Math.random();
+            var xPos = Math.cos(pos * radians - radians/4)*(radarSize/2)*rand;
+            var yPos = Math.sin(pos * radians - radians/4)*(radarSize/2)*rand;
+            str += xPos + "," + yPos + " ";
+          }
+          return str;
+        });
+
+
+    // - - - - - CANVAS ELEMENT - - - - - -//
+    //Create SVG canvas
+    var svg = d3.select("body")
+      .append("svg")
+      .attr("width", w)
+      .attr("height", h);
+
+    // - - - - - LOAD DATA - - - - - //
+    //Load data sets using D3 asynchronous queue functionality
+    console.log("LOADING DATA...");
+    d3.queue()
+      .defer(d3.json, 'data/designs.json')
+      .await( function(error,file1){
+        if(error) throw error;
+        designs = file1;
+        extractBounds(file1);
+        checkDuplicates(file1);
+        drawData(file1);
+      } );
+
+
+
+    // - - - - - - - - - - - - - - - - - - - - - - - //
+    // - - - - - DATA PROCESSING FUNCTIONS - - - - - //
+    // - - - - - - - - - - - - - - - - - - - - - - - //
+
+    // - - - - - EXTRACT DATA DOMAINS - - - - - //
+    //Iterate through unique design data and extract domains of
+    //numerical data values for use in scaling functions
+    var extractBounds = function( d ){
+      var k = d3.keys(bounds);
+      //iterate through keys (via design 0)
+      for (var i = 0; i < k.length; i++){
+        var key = k[i];
+
+        var temp = [];
+        for( var j = 0; j < d.length; j++ ){
+          temp.push( d[j][key] );
+        }
+        bounds[key] = [d3.min(temp), d3.max(temp)];
+      }
+    };
+
+    // - - - - - REPEAT DESIGN SEARCH - - - - - //
+    //Search through unique design dataset for repeat occurances within
+    //a single generation and update a "dupe" dataset structured
+    //in parallel to the "instances" array in the unique dataset
+    //All non-repeat instances (including the first appearance
+    //of a duplicated design) are flagged as "false" and repeats as "true"
+    var checkDuplicates = function( d ){
+      //iterate through designs
+      for(var i = 0; i < d.length; i++){
+        var d1 = d[i];
+        var check = [];
+        dupe.push( [] );
+
+        for(var j = 0; j < d1.instances.length; j++ ){
+          var l = dupe[dupe.length-1];
+          //console.log(l);
+          var g = d1.instances[j][0];
+          if( check.indexOf(g) == -1 ){
+            check.push(g);
+            l.push(false);
+          } else {
+            l.push(true);
+          };
+        };
+      };
+    };
+
+    var addKeys = function( d ){
+      for(var i = 0; i < d.length; i++){
+        d[i].key = i;
+      }
+    }
+
+    // - - - - - - - - - - - - - - - - - - - //
+    // - - - - - MAIN D3 FUNCTION - - - - - //
+    // - - - - - - - - - - - - - - - - - - //
+
+    //render datasets (after data loaded)
+    var drawData = function( designs ){
+      //pre-process data
+      designs.forEach(function(d,i){
+        d.key = i; //key for "unsorting"
+        d.birth = d.instances[0][0]; //first generation appearance
+        d.death = d.instances[d.instances.length-1][0]; //last gen appearance
+        d.span = d.death - d.birth; //lifespan in generations
+        d.img = "svg/d_"+d.key+".svg"; //preview reference
+      });
+      console.log("...AND AWAY WE GO!");
+
+      //resize SVG to fit data
+      svg.attr("height", y_span * (designs.length+1) + yPad );
+
+      // - - - - SCALES - - - - - //
+      //x-axis scale - even bands
+      var xBand = d3.scaleBand()
+        .domain(d3.range(101))
+        .rangeRound([xPad,w-xPad])
+        .padding(0.1);
+      //y-axis scale - even bands
+      var yBand = d3.scaleBand()
+        .domain(d3.range(designs.length))
+        .rangeRound([yPad, h-yPad])
+        .padding(0.4);
+      //y-axis scale - linear pca1 projection
+      var yScale = d3.scaleLinear()
+        .domain([bounds.pca1[0],bounds.pca1[1]])
+        .range([h-yPad,yPad]);
+      //color scale for pca1 notation
+      var pcaScale = d3.scaleLinear()
+        .domain([bounds.pca1[0], bounds.pca1[1]])
+        .range([0,1])
+        .clamp(true);
+      //color scale for cluster notation
+      var clusterScale = d3.scaleLinear()
+        .domain([bounds.cluster[0],bounds.cluster[1]])
+        .range([0,1]);
+      //color scale for origin-generation notation
+      var designScale = d3.scaleLinear()
+        .domain([0,100])
+        .range([0,1]);
+
+      // - - - - - DRAW DATA - - - - - //
+      // data structure
+      // <g id="generation_column">
+      //  <g id="column annotations">
+      //    <line id="tick mark"></line>
+      //    <text id="column label"></text>
+      //  </g>
+      //  <g id="data node container">
+      //    <line id="lineage connections"></line>
+      //    <circle id="data node"></circle>
+      //  </g>
+      //</g>
+
+      // - - - - - GENERATION ANNOTATION - - - - - //
+      //Annotation group
+      var gen_label = svg.append("g")
+        .attr("id", "gen-axis")
+        .selectAll("text")
+        .data(d3.range(101))
+        .enter()
+        .append("text")
+        .text(function(d,i){
+          return (i<=10 || i%5==0) ? i : ".";
+        })
+        .attr("text-anchor", "middle")
+        .attr("x", function(d){
+          return xBand(d);
+        })
+        .attr("y", yPad*0.75)
+        .attr("font-family", "sans-serif")
+        .attr("font-size","8px")
+        .attr("fill", "white");
+
+      // - - - - - DESIGNS - - - - - //
+      //Design group
+      var des = svg.append("g")
+        .attr("id","design-wrapper")
+        .selectAll("g")
+        .data(designs)
+        .enter()
+        .append("g")
+        .classed("design",true)
+        .attr("id",function(d,i){ return "d_"+i;})
+        .attr("transform",function(d,i){
+          return "translate(0,"+ ((y_span*i) + (y_span/2)) +")";
+        })
+        .on("mouseover", function(d){
+          d3.select(this).selectAll("text")
+            .attr("fill", "red");
+          div.transition()
+            .duration(200)
+            .style("opacity", 0.9);
+          // div.html("<img src=\"" + d.img + "\"></img>")
+          //   .style("left",(d3.event.pageX)+"px")
+          //   .style("top", (d3.event.pageY)+"px");
+          div.selectAll("img").attr("src", d.img);
+          div.style("left",(d3.event.pageX)+"px")
+            .style("top", (d3.event.pageY)+"px");
+          updateRadar(d);
+
+        })
+        .on("mouseout", function(d){
+          d3.select(this).selectAll("text")
+            .attr("fill", "gray");
+          div.transition()
+            .duration(500)
+            .style("opacity",0);
+        })
+        .on("click", function(){
+          sortDesigns();
+        });
+      //Design span marker
+      svg.selectAll(".design")
+        .append("rect")
+        .attr("x", function(d){
+          return xBand(d.birth) - y_span/2;
+        })
+        .attr("y", function(d){
+          return - y_span/2 + yPad;
+        })
+        .attr("rx", y_span/2)
+        .attr("ry", y_span/2)
+        .attr("width", function(d){
+          return y_span + xBand(d.death) - xBand(d.birth);
+        })
+        .attr("height", y_span)
+        .attr("fill", function(d){
+          return d3.interpolateViridis(designScale( d.death ));
+        })
+        .attr("opacity", function(d){
+          return d.hof ? 1.0 : 0.2;
+        });
+        //Design label
+        svg.selectAll(".design")
+          .append("text")
+          .text( function(d,i){
+            return "d"+i;
+          })
+          .attr("text-anchor", "end")
+          .attr("x", xBand(0)-xPad)
+          .attr("y", - y_span/2 + yPad + y_span-2)
+          .attr("font-family", "sans-serif")
+          .attr("font-size",y_span-2+"px")
+          .attr("fill", "gray");
+
+        // - - - - - UTILITY FUNCTIONS - - - - - //
+        //Sort (and unsort) designs by lifespan
+        var sortDesigns = function(){
+          sorted = !sorted;
+          des.sort( function(a,b){
+            return sorted ?
+              d3.descending(a.span-a.birth*1000+(a.hof ? 100 : 0), b.span-b.birth*1000+(b.hof ? 100 : 0))
+              : d3.ascending( a.key, b.key);
+          })
+          .transition()
+          .duration(1000)
+          .attr("transform",function(d,i){
+            return "translate(0,"+ ((y_span*i) + (y_span/2)) +")";
+          });
+          console.log( (sorted ? "DATA IS SORTED" : "DATA IS ORDERED") );
+        };
+
+    };
+
+
+    // - - - - - - - - - - - - - - - - - - - - //
+    // - - - - - DATA VIZ FUNCTIONS - - - - - //
+    // - - - - - - - - - - - - - - - - - - - //
+
+    // - - - - - RADAR GRAPH - - - - - //
+    // Generate radar graph to visualize scoring
+    var updateRadar = function(d){
+      d3.select(".design-data")
+        .select("h2")
+        .text("DESIGN - "+d.key);
+      d3.selectAll("#radar-value")
+        .selectAll("polygon")
+        .attr("points", function(){
+          var str = "";
+          var metrics = []
+
+          var remap = function(k,max){
+            var scale = d3.scaleLinear().domain(bounds[k]).range(max ? [0,1] : [1,0]);
+            return scale(d[k]);
+          }
+
+          metrics.push( remap("metric-daylight",true) );
+          metrics.push( remap("metric-workstyle",true) );
+          metrics.push( remap("metric-error_amen",false));
+          metrics.push( remap("metric-error_desk",false));
+          metrics.push( remap("metric-travel_dist",false) );
+          metrics.push( remap("metric-buzz", true) );
+          metrics.push( remap("metric-views_to_outside", true) );
+          metrics.push( remap("metric-distraction", false) );
+
+          for(var i = 0; i < metrics.length; i++){
+            var pos = i/ngon;
+            var xPos = Math.cos(pos * radians - radians/4)*(radarSize/2)*metrics[i];
+            var yPos = Math.sin(pos * radians - radians/4)*(radarSize/2)*metrics[i];
+            str += xPos + "," + yPos + " ";
+          }
+          return str;
+        });
+
+    };
+
+  </script>
+</body>
+</html>
