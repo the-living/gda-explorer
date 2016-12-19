@@ -6,24 +6,37 @@
   <script src="https://d3js.org/d3.v4.min.js"></script>
   <script src="d3/sankey.js"></script>
   <style>
-  .node rect {
-    cursor: move;
-    fill-opacity: .9;
-    shape-rendering: crispEdges;
-  }
-  .node text {
-    pointer-events: none;
-    font-size: 8px;
-    text-shadow: 0 1px 0 #fff;
-  }
-  .link {
-    fill: none;
-    stroke: #000;
-    stroke-opacity: .2;
-  }
-  .link:hover {
-    stroke-opacity: .8;
-  }
+    div.tooltip {
+      position: absolute;
+      text-align: center;
+      padding: 10px;
+      font: 12px sans-serif;
+      background: lightsteelblue;
+      border: 0px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    .node rect {
+      cursor: move;
+      fill-opacity: .9;
+      shape-rendering: crispEdges;
+    }
+    .node text {
+      pointer-events: none;
+      font-size: 8px;
+      text-shadow: 0 1px 0 #fff;
+    }
+    .node rect:hover {
+      fill:red;
+    }
+    .link {
+      fill: none;
+      stroke: #000;
+      stroke-opacity: .2;
+    }
+    .link:hover {
+      stroke-opacity: .8;
+    }
   </style>
 </head>
 <body>
@@ -40,8 +53,8 @@
     var units = " ";
 
     var margin = {top: 1, right: 1, bottom: 6, left: 1},
-        width = 1500 - margin.left - margin.right,
-        height = 4000 - margin.top - margin.bottom;
+        width = 1200 - margin.left - margin.right,
+        height = 7500 - margin.top - margin.bottom;
 
     // format variables
     var formatNumber = d3.format(",.0f"),    // zero decimal places
@@ -55,6 +68,16 @@
       .append("g")
         .attr("transform",
               "translate(" + margin.left + "," + margin.top + ")");
+
+    // - - - - - TOOLTIP - - - - - //
+    //Create <div> DOM element for tooltips
+    var div = d3.select("body").append("div")
+      .attr("class","tooltip")
+      .style("opacity", 0);
+    d3.selectAll(".tooltip").append("div")
+      .attr("class","plan-preview")
+      .append("img")
+      .style("float","left");
 
     var sankey = d3.sankey()
         .nodeWidth(10)
@@ -73,13 +96,14 @@
         var des = {}
         des.node = i;
         des.name = "d_" + i;
+        des.img = "svg/"+Math.floor(i/100)+"/d_"+i+".svg"; //preview reference
         design.nodes.push( des )
         for(var k = 0; k < designs[i].child.length; k++){
           var l = {};
           l.source = i;
           l.target =  designs[i].child[k];
           // l.value =  designs[i].instances[ designs[i].instances.length-1][0] -  designs[i].instances[0][0];
-          l.value = 5;
+          l.value = 1;
           design.links.push(l);
         };
       };
@@ -91,7 +115,7 @@
 
       sankey.nodes(design.nodes)
           .links(design.links)
-          .layout(2048);
+          .layout(512);
 
       var link = svg.append("g").selectAll(".link")
           .data(design.links)
@@ -126,7 +150,29 @@
           .on("start", function() {
             this.parentNode.appendChild(this);
           })
-          .on("drag", dragmove));
+          .on("drag", dragmove))
+          .on("mouseover", function(d){
+            d3.select(this).selectAll("text")
+              .attr("fill", "red");
+            div.transition()
+              .duration(200)
+              .style("opacity", 0.9);
+            // div.html("<img src=\"" + d.img + "\"></img>")
+            //   .style("left",(d3.event.pageX)+"px")
+            //   .style("top", (d3.event.pageY)+"px");
+            div.selectAll("img").attr("src", d.img);
+            div.style("left",(d3.event.pageX)+"px")
+              .style("top", (d3.event.pageY)+"px");
+            updateRadar(d);
+
+          })
+          .on("mouseout", function(d){
+            d3.select(this).selectAll("text")
+              .attr("fill", "gray");
+            div.transition()
+              .duration(500)
+              .style("opacity",0);
+          });
 
       // add the rectangles for the nodes
       node.append("rect")
@@ -138,7 +184,7 @@
   		  return d3.rgb(d.color).darker(2); })
         .append("title")
         .text(function(d) {
-  		  return d.name + "\n" + "CHILDREN: " + format(d.value/2); });
+  		  return d.name + "\n" + "CHILDREN: " + format(d.value); });
 
       // add in the title for the nodes
       node.append("text")
