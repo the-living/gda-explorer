@@ -136,6 +136,27 @@
       })
       .attr("stroke","black")
       .attr("stroke-width", "0.5px");
+      d3.selectAll("#radar-base")
+      .selectAll("text")
+      .data(d3.range(ngon))
+      .enter()
+      .append("text")
+      .text(function(d){
+        var titles = ["DL","WS","ERR-A","ERR-D","TD","BZ","VTO","DS"];
+        return titles[d];
+      })
+      .attr("x", 0)
+      .attr("y", 0)
+      .attr("text-anchor", "middle")
+      .attr("font-family", "sans-serif")
+      .attr("font-size","8px")
+      .attr("fill", "black")
+      .attr("transform",function(d){
+        var newX = Math.cos(d/ngon * radians - radians/4)*(radarSize/2 + 2);
+        var newY = Math.sin(d/ngon * radians - radians/4)*(radarSize/2 + 2);
+        return "translate("+newX+","+newY+") rotate("+(d/ngon * 360)+")";
+      });
+
       d3.selectAll("#radar-value")
         .append("polygon")
         .attr("fill","black")
