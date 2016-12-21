@@ -27,6 +27,12 @@
       stroke: black;
       stroke-width: 1px;
     }
+    .hidden {
+      pointer-events: none;
+    }
+    .hidden rect{
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -425,8 +431,12 @@
         })
         .on("click", function(d){
           //check if already hidden
-          if( d3.selectAll(".hidden").size() ){
-            d3.select(this).selectAll("rect").style("stroke", "none").style("stroke-width","0px");
+          if( d3.selectAll(".chosen").size() ){
+            d3.select(".chosen")
+              .classed("chosen", false)
+              .selectAll("rect")
+              .style("stroke", "none")
+              .style("stroke-width","0px");
             d3.selectAll(".design")
               .sort(function(a,b){ return d3.ascending(a.key,b.key)})
               .transition()
@@ -434,11 +444,12 @@
               .attr("transform", function(d,i){ return "translate(0,"+ ((y_span*i) + (y_span/2)) +")"; })
               .style("opacity",1.0)
               .selectAll("rect")
-              .style("opacity",function(d){return d.hof? 0.8:0.2;});;
+              .style("opacity",function(d){return d.hof? 0.8:0.2;});
             d3.selectAll(".hidden")
               .classed("hidden", false);
           } else {
-            d3.select(this).selectAll("rect").style("stroke", "white").style("stroke-width","3px");
+            d3.select(this).classed("chosen", true);
+            d3.select(".chosen").selectAll("rect").style("stroke", "white").style("stroke-width","3px");
             console.log("HIGHLIGHTING LINEAGE")
             d3.selectAll(".design")
               .filter( function(k){
