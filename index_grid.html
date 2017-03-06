@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GDA - Design Explorer</title>
+  <script type="text/javascript" src="d3/d3.js"></script>
+  <style>
+    body{
+      background: black;
+    }
+  </style>
+</head>
+<body>
+  <p>
+    Design Explorer
+  </p>
+
+  <script type="text/javascript">
+    // - - - - - CONSTANTS - - - - -//
+    //Canvas
+    var w = 1420;
+    var h = 570;
+    var xPad = 10;
+    var yPad = 10;
+
+    // - - - - - VARIABLES - - - - - //
+    //External dataset (variables allow access through console)
+    var designs;
+    var lineage;
+    //Domain for design dataset numerical values
+    var bounds = {
+      "metric-travel_dist":[0,0],
+      "metric-daylight":[0,0],
+      "metric-buzz":[0,0],
+      "metric-distraction":[0,0],
+      "metric-workstyle":[0,0],
+      "metric-views_to_outside":[0,0],
+      "pca-1":[0,0],
+      "pca2":[0,0],
+      "cluster":[0,0]
+    };
+    //Log of repeat instances of unique design within a single generation
+    var dupe = [];
+
+
+    // - - - - - - - - - - - - - //
+    // - - - - - SETUP - - - - - //
+    // - - - - - - - - - - - - - //
+
+    // - - - - - CANVAS ELEMENT - - - - - -//
+    //Create SVG canvas
+    var svg = d3.select("body")
+      .append("svg")
+      .attr("width", w)
+      .attr("height", h);
+
+    // - - - - - LOAD DATA - - - - - //
+    //Load data sets using D3 asynchronous queue functionality
+    console.log("LOADING DATA...");
+    d3.queue()
+      .defer(d3.json, 'data/designs-pca_sort.json')
+      .defer(d3.json, 'data/lineage.json')
+      .await( function(error,file1,file2){
+        if(error) throw error;
+        designs = file1;
+        lineage = file2;
+        extractBounds(file1);
+        checkDuplicates(file1);
+        drawData(file1,file2);
+      } );
+
+
+    // - - - - - - - - - - - - - - - - - - - - - - - //
+    // - - - - - DATA PROCESSING FUNCTIONS - - - - - //
+    // - - - - - - - - - - - - - - - - - - - - - - - //
+
+    // - - - - - EXTRACT DATA DOMAINS - - - - - //
+    //Iterate through unique design data and extract domains of
+    //numerical data values for use in scaling functions
+    var extractBounds = function( d ){
+      var k = d3.keys(bounds);
+      //iterate through keys (via design 0)
+      for (var i = 0; i < k.length; i++){
+        var key = k[i];
+
+        var temp = [];
+        for( var j = 0; j < d.length; j++ ){
+          temp.push( d[j][key] );
+        }
+        bounds[key] = [d3.min(temp), d3.max(temp)];
+      }
+    };
+
+    // - - - - - REPEAT DESIGN SEARCH - - - - - //
+    //Search through unique design dataset for repeat occurances within
+    //a single generation and update a "dupe" dataset structured
+    //in parallel to the "instances" array in the unique dataset
+    //All non-repeat instances (including the first appearance
+    //of a duplicated design) are flagged as "false" and repeats as "true"
+    var checkDuplicates = function( d ){
+      //iterate through designs
+      for(var i = 0; i < d.length; i++){
+        var d1 = d[i];
+        var check = [];
+        dupe.push( [] );
+
+        for(var j = 0; j < d1.instances.length; j++ ){
+          var l = dupe[dupe.length-1];
+          //console.log(l);
+          var g = d1.instances[j][0];
+          if( check.indexOf(g) == -1 ){
+            check.push(g);
+            l.push(false);
+          } else {
+            l.push(true);
+          };
+        };
+      };
+    };
+
+    // - - - - - - - - - - - - - - - - - - - //
+    // - - - - - MAIN D3 FUNCTION - - - - - //
+    // - - - - - - - - - - - - - - - - - - //
+
+    //render datasets (after data loaded)
+    var drawData = function( designs, lineage ){
+      console.log("...DATA LOADED");
+
+      // - - - - SCALES - - - - - //
+      //x-axis scale - even bands
+      var xBand = d3.scaleBand()
+        .domain(d3.range(lineage.length))
+        .rangeRound([xPad,w-xPad])
+        .padding(0.1);
+      //y-axis scale - even bands
+      var yBand = d3.scaleBand()
+        .domain(d3.range(lineage[0].length))
+        .rangeRound([yPad, h-yPad])
+        .padding(0.4);
+      //y-axis scale - linear pca1 projection
+      var yScale = d3.scaleLinear()
+        .domain([bounds["pca-1"][0],bounds["pca-1"][1]])
+        .range([h-yPad,yPad]);
+      //color scale for pca1 notation
+      var pcaScale = d3.scaleLinear()
+        .domain([bounds["pca-1"][0], bounds["pca-1"][1]])
+        .range([0,1])
+        .clamp(true);
+      //color scale for cluster notation
+      var clusterScale = d3.scaleLinear()
+        .domain([bounds.cluster[0],bounds.cluster[1]])
+        .range([0,1]);
+      //color scale for origin-generation notation
+      var designScale = d3.scaleLinear()
+        .domain([0,100])
+        .range([0,1]);
+
+      // - - - - - DRAW DATA - - - - - //
+      // data structure
+      // <g id="generation_column">
+      //  <g id="column annotations">
+      //    <line id="tick mark"></line>
+      //    <text id="column label"></text>
+      //  </g>
+      //  <g id="data node container">
+      //    <line id="lineage connections"></line>
+      //    <circle id="data node"></circle>
+      //  </g>
+      //</g>
+
+      // - - - - - GENERATION CONTAINER - - - - - //
+      var gen = svg.selectAll("g")
+        .data(lineage)
+        .enter()
+        .append("g")
+        .attr("id", function(d,i){
+          return "G" + d3.format("03")(i);
+        })
+        .attr("transform", function(d,i){
+          //console.log(xScale(i));
+          return "translate(" + ( xBand(i) ) + ",0)";
+        });
+
+      // - - - - - GENERATION ANNOTATION - - - - - //
+      //Annotation group
+      var gen_label = svg.selectAll("g")
+        .append("g")
+        .classed("gen-label", true)
+      //Text Label
+      gen_label.append("text")
+        .text(function(d,i){
+          if(i <= 10 || i%5 == 0){
+            return i;
+          } else {
+            return ".";
+          }
+        })
+        .attr("text-anchor", "middle")
+        .attr("x", 0)
+        .attr("y", yBand(0)-yPad)
+        .attr("font-family", "sans-serif")
+        .attr("font-size","8px")
+        .attr("fill", "white");
+
+      // - - - - - SOLUTION DATAPOINTS - - - - - //
+      //Solution group (data point & lineage)
+      var sol = gen.selectAll("g")
+        .data(function(d,i){
+          return d;
+        })
+        .enter()
+        .append("g")
+        .classed("solution", true)
+        .attr("id", function(d,i){
+          return d3.select(this.parentNode).attr('id') + "S"+d3.format("03")(i);
+        })
+      //Lineage connections
+
+      sol.sort( function(x,y){
+        var uid_a = x.design_id;
+        var uid_b = y.design_id;
+        var pca_a = uid_a > 0 ? designs[uid_a]["pca-1"]:-1;
+        var pca_b = uid_b > 0 ? designs[uid_b]["pca-1"]:-1;
+        return d3.ascending(pca_a, pca_b)
+      });
+
+      //Data points
+      sol.append("circle")
+        .attr("cx", 0)
+        .attr("class", "node")
+        .attr("cy", function(d,i){
+          return yBand(i);
+
+        })
+        .attr("r", yBand.bandwidth()/2)
+        .attr("fill",function(d){
+          //console.log(d);
+          var uid = d.design_id;
+
+          if(parseInt(uid) >= 0){
+            // color by PCA1
+            // return d3.interpolateMagma(pcaScale( designs[uid].pca1) );
+
+            // color by cluster
+            // return d3.interpolatePlasma( clusterScale( designs[uid].cluster) );
+
+            //color by first appearance of design
+            return d3.interpolatePlasma( pcaScale( designs[uid]["pca-1"]) );
+            //return d3.interpolateViridis( designScale( designs[uid].instances[0][0] ) );
+
+            //color by length of persistence
+            // if(designs[uid].instances.length <= 10){
+            //   // return d3.interpolatePlasma( clusterScale( designs[uid].cluster) );
+            //   return d3.interpolateRainbow( designScale( designs[uid].instances[0][0] ) );
+            // } else {
+            //   return "black";
+            // };
+
+            //color "dead end" solutions with no offspring
+            // if (d.descendants.length > 0){
+            //   return "red";
+            // } else {
+            //   return "indigo"
+            // }
+          } else {
+            return "gray";
+          }
+
+
+        });
+
+      var showConnections = function(){
+        var forward = []
+        var backward = []
+
+        //process items in forward queue until empty
+
+        //process items in backward queue until empty
+      }
+
+
+
+
+    };
+
+
+
+
+
+  </script>
+</body>
+</html>

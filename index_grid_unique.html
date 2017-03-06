@@ -8,8 +8,13 @@
     body{
       background: black;
     }
+    .design path{
+      stroke-width: 4px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .design :hover{
-      fill:red;
+      stroke:red;
     }
     div.tooltip {
       position: absolute;
@@ -61,8 +66,6 @@
       "metric-error_desk": "ERR-D",
       "metric-travel_dist": "TD",
       "metric-buzz": "BZ",
-
-
     }
 
     // - - - - - VARIABLES - - - - - //
@@ -82,12 +85,9 @@
       "pca2":[0,0],
       "cluster":[0,0]
     };
-    //Log of repeat instances of unique design within a single generation
-    var dupe = [];
 
     var sorted = false;
 
-    var svg_example = "<svg xmlns=\"http://www.w3.org/2000/svg/\" width=\"273.459383\" height=\"103.090312\" class=\"d-plan\" version=\"1.1\"><polygon fill=\"black\" class=\"plan-bound\" points=\"0.000000,102.493128 54.258758,102.493128 54.258758,68.670003 81.315945,68.670003 81.315945,96.435940 273.459383,96.435940 273.459383,-0.597185 211.371570,-0.597185 211.371570,45.553596 110.000633,45.553596 110.000633,32.756708 116.051258,32.756708 116.051258,0.170634 81.315945,0.170628 81.315945,11.051253 54.258762,11.051253 54.258762,0.000000 0.000000,0.000000\"/></svg>";
     // - - - - - - - - - - - - - //
     // - - - - - SETUP - - - - - //
     // - - - - - - - - - - - - - //
@@ -215,13 +215,14 @@
     //Load data sets using D3 asynchronous queue functionality
     console.log("LOADING DATA...");
     d3.queue()
-      .defer(d3.json, 'data/designs.json')
-      .await( function(error,file1){
+      .defer(d3.json, 'data/designs-pca_sort.json')
+      .defer(d3.json, 'data/sort_order.json')
+      .await( function(error,file1, file2){
         if(error) throw error;
         designs = file1;
+        sort = file2;
         extractBounds(file1);
-        // checkDuplicates(file1);
-        drawData(file1);
+        drawData(file1, file2);
       } );
 
 
@@ -247,33 +248,9 @@
       }
     };
 
-    // - - - - - REPEAT DESIGN SEARCH - - - - - //
-    //Search through unique design dataset for repeat occurances within
-    //a single generation and update a "dupe" dataset structured
-    //in parallel to the "instances" array in the unique dataset
-    //All non-repeat instances (including the first appearance
-    //of a duplicated design) are flagged as "false" and repeats as "true"
-    var checkDuplicates = function( d ){
-      //iterate through designs
-      for(var i = 0; i < d.length; i++){
-        var d1 = d[i];
-        var check = [];
-        dupe.push( [] );
-
-        for(var j = 0; j < d1.instances.length; j++ ){
-          var l = dupe[dupe.length-1];
-          //console.log(l);
-          var g = d1.instances[j][0];
-          if( check.indexOf(g) == -1 ){
-            check.push(g);
-            l.push(false);
-          } else {
-            l.push(true);
-          };
-        };
-      };
-    };
-
+    // - - - - - ADD KEYS - - - - - //
+    //Iterate through unique design data and extract domains of
+    //numerical data values for use in scaling functions
     var addKeys = function( d ){
       for(var i = 0; i < d.length; i++){
         d[i].key = i;
@@ -298,7 +275,7 @@
     // - - - - - - - - - - - - - - - - - - //
 
     //render datasets (after data loaded)
-    var drawData = function( designs ){
+    var drawData = function( designs, sorting ){
       //pre-process data
       designs.forEach(function(d,i){
         d.key = i; //key for "unsorting"
@@ -306,7 +283,16 @@
         d.death = d.instances[d.instances.length-1][0]; //last gen appearance
         d.span = d.death - d.birth; //lifespan in generations
         d.img = "svg/"+Math.floor(d.key/100)+"/d_"+d.key+".svg"; //preview reference
+        //calc dominance
         d.dominate = calcDom(d);
+        //create instances sort
+        for(var j=0; j < d.instances.length; j++ ){
+            var g = d.instances[j][0];
+            var s = d.instances[j][1];
+            d.instances[j].push( sorting[g][s] );
+            // console.log(d.instances[j])
+        }
+        //calc forward & backward lineage
         d.forward = [];
         d.backward = [];
         var remainNodes = [];
@@ -342,7 +328,7 @@
       console.log("...AND AWAY WE GO!");
 
       //resize SVG to fit data
-      svg.attr("height", y_span * (designs.length+1) + yPad );
+      //svg.attr("height", y_span * (designs.length+1) + yPad );
 
       // - - - - SCALES - - - - - //
       //x-axis scale - even bands
@@ -352,7 +338,7 @@
         .padding(0.1);
       //y-axis scale - even bands
       var yBand = d3.scaleBand()
-        .domain(d3.range(designs.length))
+        .domain(d3.range(100))
         .rangeRound([yPad, h-yPad])
         .padding(0.4);
       //y-axis scale - linear pca1 projection
@@ -361,7 +347,7 @@
         .range([h-yPad,yPad]);
       //color scale for pca1 notation
       var pcaScale = d3.scaleLinear()
-        .domain([bounds.pca1[0], bounds.pca1[1]])
+        .domain([-1, 1])
         .range([0,1])
         .clamp(true);
       //color scale for cluster notation
@@ -416,9 +402,6 @@
         .append("g")
         .classed("design",true)
         .attr("id",function(d,i){ return "d_"+i;})
-        .attr("transform",function(d,i){
-          return "translate(0,"+ ((y_span*i) + (y_span/2)) +")";
-        })
         .on("mouseover", function(d){
           d3.select(this).selectAll("text")
             .attr("fill", "red");
@@ -433,60 +416,6 @@
             .style("top", (d3.event.pageY)+"px");
           updateRadar(d);
 
-        })
-        .on("mouseout", function(d){
-          d3.select(this).selectAll("text")
-            .attr("fill", "gray");
-          div.transition()
-            .duration(500)
-            .style("opacity",0);
-        })
-        .on("click", function(d){
-          //check if already hidden
-          if( d3.selectAll(".chosen").size() ){
-            svg.attr("height", y_span * (designs.length+1) + yPad );
-            d3.select(".chosen")
-              .classed("chosen", false)
-              .selectAll("rect")
-              .style("stroke", "none")
-              .style("stroke-width","0px");
-            d3.selectAll(".design")
-              .sort(function(a,b){ return d3.ascending(a.key,b.key)})
-              .transition()
-              .duration(500)
-              .attr("transform", function(d,i){ return "translate(0,"+ ((y_span*i) + (y_span/2)) +")"; })
-              .style("opacity",1.0)
-              .selectAll("rect")
-              .style("opacity",function(d){return d.hof? 0.8:0.2;});
-            d3.selectAll(".hidden")
-              .classed("hidden", false);
-          } else {
-            d3.select(this).classed("chosen", true);
-            d3.select(".chosen").selectAll("rect").style("stroke", "white").style("stroke-width","3px");
-            console.log("HIGHLIGHTING LINEAGE")
-            d3.selectAll(".design")
-              .filter( function(k){
-                return !(d.forward.includes(k.key) || d.backward.includes(k.key) || d.key==k.key);
-              }).classed("hidden", true);
-            console.log("DONE!");
-            d3.selectAll(".hidden")
-              .transition()
-              .duration(500)
-              .style("opacity",0);
-            d3.selectAll(".design").filter("*:not(.hidden)")
-              .sort(function(a,b){ return d3.ascending(a.key,b.key)})
-              .transition()
-              .duration(500)
-              .attr("transform", function(d,i){ return "translate(0,"+ ((y_span*i) + (y_span/2)) +")"; })
-              .selectAll("rect")
-              .style("opacity",0.8);
-            console.log( designs.length - d3.selectAll(".hidden").size() + " DESIGNS VISIBLE" );
-            console.log(svg.attr("height"));
-            svg.transition().delay(500).attr("height", y_span * (designs.length - d3.selectAll(".hidden").size()+1) + yPad );
-            console.log(svg.attr("height"));
-          }
-          // sortDesigns();
-
         });
 
       function traverseLineage(d){
@@ -495,27 +424,23 @@
         var forward = []
         var backward = []
         d.forEach( function(k){console.log("-_- " + k);} );
-
-        // console.log(d);
       }
+
       //Design span marker
       svg.selectAll(".design")
-        .append("rect")
-        .attr("x", function(d){
-          return xBand(d.birth) - y_span/2;
+        .append("path")
+        .attr("d", function(d){
+          var ln = d3.line()
+            .x( function(d){ return xBand(d[0]); } )
+            .y( function(d){ return yBand(d[1]); } );
+          // console.log(d.instances[0][0]);
+          //return ln(d["instances-sort"]);
+          return ln(d["instances"]);
         })
-        .attr("y", function(d){
-          return - y_span/2 + yPad;
+        .attr("stroke", function(d){
+          return d3.interpolateViridis(pcaScale( d["pca-1"] ));
         })
-        .attr("rx", y_span/2)
-        .attr("ry", y_span/2)
-        .attr("width", function(d){
-          return y_span + xBand(d.death) - xBand(d.birth);
-        })
-        .attr("height", y_span)
-        .attr("fill", function(d){
-          return d3.interpolateViridis(designScale( d.death ));
-        })
+        .attr("fill", "none")
         .attr("opacity", function(d){
           return d.hof ? 1.0 : 0.2;
         });
